@@ -1,3 +1,8 @@
+# Description
+
+If you using NestJS with: Pagination, GraphQL code-first, Mongoose. This package
+is fit for you.
+
 # Install
 
 with npm
