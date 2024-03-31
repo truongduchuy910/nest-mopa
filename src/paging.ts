@@ -124,9 +124,6 @@ export class Paging<T> {
       this.filter[key] = after
         ? this.afterOf(after.cursor)
         : this.beforeOf(before.cursor);
-
-      this.filter[key] ||= {};
-      this.filter[key].$exists = true;
     }
 
     this.sort = (
@@ -136,6 +133,9 @@ export class Paging<T> {
           }
         : { [key]: order }
     ) as Sort<T>;
+
+    this.filter[key] ||= {};
+    this.filter[key].$exists = true;
 
     if (this.search) {
       this.filter.$text = { $search: this.search };
