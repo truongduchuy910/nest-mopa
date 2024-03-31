@@ -5,6 +5,12 @@ import { sign, verify } from 'jsonwebtoken';
 export interface FindManyProps<T = any> {
   filter: FilterQuery<T>;
   paging: PagingInputInterface;
+  sort?: {
+    key: keyof T;
+    KeyType: any;
+    order: SortOrder;
+  };
+  search?: string;
 }
 
 type Sort<T> = { [K in keyof T]: SortOrder };
@@ -63,10 +69,9 @@ export class Paging<T> {
 
   key: keyof T;
   KeyType: any;
+  order: SortOrder;
 
   reverse = false;
-
-  order: SortOrder;
 
   secret: string;
 

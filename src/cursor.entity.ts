@@ -48,11 +48,6 @@ export class PagingInput implements PagingInputInterface {
 
   @Field({
     nullable: true,
-  })
-  sortBy?: string;
-
-  @Field({
-    nullable: true,
     description: 'This offsets the start of each page by the number specified.',
   })
   offset?: number;
@@ -71,12 +66,6 @@ export class PagingInput implements PagingInputInterface {
       'Using to build pagination map. This is total results return per page.',
   })
   size?: number;
-
-  @Field({
-    nullable: true,
-    description: 'Full-text search.',
-  })
-  search?: string;
 }
 
 @ObjectType()
