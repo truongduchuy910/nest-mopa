@@ -1,11 +1,6 @@
-import { type FilterQuery, type Model, type SortOrder, Types } from 'mongoose';
 import { first, isArray, last, pickBy } from 'lodash';
-import { sign, verify } from 'jsonwebtoken';
-
-export interface FindManyProps<T = any> {
-  filter: FilterQuery<T>;
-  paging: PagingInputInterface;
-}
+import { Model, SortOrder, Types } from 'mongoose';
+import * as jwt from 'jsonwebtoken';
 
 type Sort<T> = { [K in keyof T]: SortOrder };
 
@@ -29,28 +24,24 @@ export interface PagingInputInterface {
   size?: number;
 
   search?: string;
-
-  sortBy?: string;
 }
 
-export interface PagingProps<T> {
+interface PagingProps<T> {
   filter: any;
-  search?: string;
   key?: keyof T;
   KeyType?: any;
   order?: SortOrder;
+  toEntity?: any;
   cursors?: {
     after?: any;
     before?: any;
   };
-  toEntity?: any;
 }
 
 /* eslint-disable */
 export class Paging<T> {
-  static DEFAULT_KEY = '_id';
-  static DEFAULT_TYPE = Types.ObjectId;
   static ASC: SortOrder = 1;
+
   static DESC: SortOrder = -1;
 
   filter: any;
@@ -59,10 +50,11 @@ export class Paging<T> {
 
   originSort: Sort<T>;
 
-  sort: Sort<T> & { _id?: SortOrder; score?: { $meta: 'textScore' } };
+  sort: Sort<T> & { _id?: SortOrder };
 
   key: keyof T;
-  KeyType: any;
+
+  toEntity?: any;
 
   reverse = false;
 
@@ -70,101 +62,102 @@ export class Paging<T> {
 
   secret: string;
 
-  search: string;
-
-  toEntity?: any;
-
   constructor(props: PagingProps<T>) {
     this.cursor = this.cursor.bind(this);
     this.build = this.build.bind(this);
-
     let {
-      key = Paging.DEFAULT_KEY as keyof T,
-      KeyType = Paging.DEFAULT_TYPE,
-      order = Paging.ASC,
+      key = '_id' as keyof T,
+      KeyType = Types.ObjectId,
       cursors,
       filter = {},
-      search,
+      order = Paging.ASC,
       toEntity,
     } = props;
 
-    this.toEntity = toEntity;
-    this.search = search;
+    this.toEntity;
     this.key = key;
-    this.KeyType = KeyType;
     this.order = order;
-    this.condition = filter || {};
-    this.filter = filter || {};
+    this.condition = Object.assign({}, filter);
     this.secret = process.env.NEMOPA_SECRET || 'this-is-default';
 
-    /**
-     * 1. ĐIỀU KIỆN LẤY MẢNG TIẾP THEO.
-     */
     if (cursors) {
-      /**
-       * Giải mã cursors, xác định chiều của mảng.
-       */
       const { after, before } = this.decrypt(cursors);
-
-      this.reverse = Boolean(before);
-
-      /**
-       * Lấy phần đăng sau cursor
-       */
-
-      if (after && before) {
-        throw new Error('Cannot using both "after" and "before"');
+      if (after) {
+        const { cursor } = after;
+        filter[key] =
+          order === Paging.ASC
+            ? { $gt: KeyType ? new KeyType(cursor) : cursor }
+            : { $lt: KeyType ? new KeyType(cursor) : cursor };
       }
 
-      this.filter[key] = after
-        ? this.afterOf(after.cursor)
-        : this.beforeOf(before.cursor);
+      if (after && key !== '_id') {
+        const { _id, cursor } = after;
+        filter = {
+          $or: [
+            {
+              ...this.condition,
+              [key]: filter[key],
+            },
+            {
+              ...this.condition,
+              [key]: KeyType ? new KeyType(cursor) : cursor,
+              _id:
+                order === Paging.ASC
+                  ? { $gt: new Types.ObjectId(_id) }
+                  : { $lt: new Types.ObjectId(_id) },
+            },
+          ],
+        };
+      }
 
-      this.filter[key] ||= {};
-      this.filter[key].$exists = true;
+      if (before) {
+        const { cursor } = before;
+        this.reverse = true;
+        filter[key] =
+          order === Paging.ASC
+            ? { $lt: KeyType ? new KeyType(cursor) : cursor }
+            : { $gt: KeyType ? new KeyType(cursor) : cursor };
+      }
+
+      if (before && key !== '_id') {
+        const { _id, cursor } = before;
+        filter = {
+          $or: [
+            {
+              ...this.condition,
+              [key]: filter[key],
+            },
+            {
+              ...this.condition,
+              [key]: KeyType ? new KeyType(cursor) : cursor,
+              _id:
+                order === Paging.ASC
+                  ? { $lt: new Types.ObjectId(_id) }
+                  : { $gt: new Types.ObjectId(_id) },
+            },
+          ],
+        };
+      }
     }
 
-    this.sort = (
-      this.reverse
-        ? {
-            [key]: order === Paging.ASC ? Paging.DESC : Paging.ASC,
-          }
-        : { [key]: order }
-    ) as Sort<T>;
-
-    if (this.search) {
-      this.filter.$text = { $search: this.search };
-      this.sort.score = { $meta: 'textScore' };
+    if (key !== '_id') {
+      filter[key] ||= {};
+      filter[key].$exists = true;
     }
 
-    this.filter = pickBy(this.filter, (value) =>
+    if (this.reverse) {
+      this.sort = {
+        [key]: order === Paging.ASC ? Paging.DESC : Paging.ASC,
+      } as Sort<T>;
+    } else {
+      this.sort = { [key]: order } as Sort<T>;
+    }
+    this.sort['_id'] = this.sort[key];
+    this.filter = pickBy(filter, (value) =>
       isArray(value)
         ? value.length > 0
         : value !== undefined && value !== null && value !== '',
     ) as { [P in keyof T]?: any };
-  }
-
-  /**
-   * Trả về điều kiện để đi tiếp từ cursors
-   */
-  afterOf(cursor: any) {
-    const KeyType = this.KeyType;
-    return this.order === Paging.ASC
-      ? { $gt: KeyType ? new KeyType(cursor) : cursor }
-      : { $lt: KeyType ? new KeyType(cursor) : cursor };
-  }
-
-  /**
-   * Trả về điều kiện để đi ngược cursors
-   * Mảng thuận từ bé đến lớn thì lấy đằng trước, những cái có giá trị nhỏ hơn.
-   * Mảng nghịch thì lấy ngược lại.
-   */
-  beforeOf(cursor: any) {
-    const KeyType = this.KeyType;
-
-    return this.order === Paging.ASC
-      ? { $lt: KeyType ? new KeyType(cursor) : cursor }
-      : { $gt: KeyType ? new KeyType(cursor) : cursor };
   }
 
   decrypt(cursors: { after?: string; before?: string }) {
@@ -181,52 +174,68 @@ export class Paging<T> {
   parse(cursor: string) {
     try {
       if (this.secret) {
-        return verify(cursor, this.secret);
+        return jwt.verify(cursor, this.secret);
       } else {
         return JSON.parse(cursor);
       }
     } catch (e) {
+      console.log(e.message);
       throw new Error(`Pagination error.`);
     }
   }
 
-  stringify(cursor: any) {
-    const value = { cursor };
+  stringify(_id: string, cursor: any) {
+    const value = { _id, cursor };
     if (this.secret) {
-      return sign(value, this.secret);
+      return jwt.sign(value, this.secret);
     } else {
       return JSON.stringify(value);
     }
   }
 
-  /**
-   * Trả về mảng kết quả
-   * cursors để lấy trạng thái tiếp theo
-   */
   cursor(many: Array<T & { _id?: any }>) {
-    /**
-     * Chuẩn hoá chiều kết quả
-     * cho trường hợp mảng từ bé đến lớn, tại vị trí cursos lấy ngược các phần tử bé hơn.
-     */
     const data = this.reverse ? many.reverse() : many;
-
-    /* vị trí chốt */
     const lastCursor = last(data)?.[this.key];
-    /* gộp điều kiện hiện tại */
+    const lastId = last(data)?.['_id'];
+    const afterCursor = this.stringify(lastId, lastCursor);
     let filterNext = Object.assign({}, this.filter);
-    /* điều kiện kết quả tiếp theo */
-    filterNext[this.key] = this.afterOf(lastCursor);
+    filterNext[this.key] =
+      this.order === Paging.ASC ? { $gt: lastCursor } : { $lt: lastCursor };
 
-    /* vị trí chốt */
-    const firstCursor = first(data)?.[this.key];
-    /* gộp điều kiện hiện tại */
+    const fistCursor = first(data)?.[this.key];
+    const firstId = first(data)?.['_id'];
+    const beforeCursor = this.stringify(firstId, fistCursor);
     let filterPrevious = Object.assign({}, this.filter);
-    /* điều kiện kết quả trước */
-    filterPrevious[this.key] = this.beforeOf(firstCursor);
+    filterPrevious[this.key] =
+      this.order === Paging.ASC ? { $lt: fistCursor } : { $gt: fistCursor };
+
+    if (this.key !== '_id') {
+      filterNext = {
+        $or: [
+          { ...this.condition, [this.key]: filterNext[this.key] },
+          {
+            ...this.condition,
+            [this.key]: lastCursor,
+            _id: this.order === Paging.ASC ? { $gt: lastId } : { $lt: lastId },
+          },
+        ],
+      };
+      filterPrevious = {
+        $or: [
+          { ...this.condition, [this.key]: filterPrevious[this.key] },
+          {
+            ...this.condition,
+            [this.key]: fistCursor,
+            _id:
+              this.order === Paging.ASC ? { $lt: firstId } : { $gt: firstId },
+          },
+        ],
+      };
+    }
 
     return {
-      afterCursor: this.stringify(lastCursor),
-      beforeCursor: this.stringify(firstCursor),
+      afterCursor,
+      beforeCursor,
       filterNext,
       filterPrevious,
       data,
@@ -264,6 +273,7 @@ export class PagingWithPage<T> {
   size?: number;
   filter?: any;
   constructor(props: { filter: any; paging: PagingInputInterface }) {
+    console.log(props.paging);
     this.size = Number(props?.paging?.size) || 10;
     this.limit = Number(props?.paging?.limit) || this.size;
     this.skip = Number(props?.paging?.offset) || 0;

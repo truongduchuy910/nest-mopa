@@ -1,11 +1,6 @@
-import { type FilterQuery, type Model, type SortOrder, Types } from 'mongoose';
 import { first, isArray, last, pickBy } from 'lodash';
-import { sign, verify } from 'jsonwebtoken';
-
-export interface FindManyProps<T = any> {
-  filter: FilterQuery<T>;
-  paging: PagingInputInterface;
-}
+import { Model, SortOrder, Types } from 'mongoose';
+import * as jwt from 'jsonwebtoken';
 
 type Sort<T> = { [K in keyof T]: SortOrder };
 
@@ -181,7 +176,7 @@ export class Paging<T> {
   parse(cursor: string) {
     try {
       if (this.secret) {
-        return verify(cursor, this.secret);
+        return jwt.verify(cursor, this.secret);
       } else {
         return JSON.parse(cursor);
       }
@@ -193,7 +188,7 @@ export class Paging<T> {
   stringify(cursor: any) {
     const value = { cursor };
     if (this.secret) {
-      return sign(value, this.secret);
+      return jwt.sign(value, this.secret);
     } else {
       return JSON.stringify(value);
     }
