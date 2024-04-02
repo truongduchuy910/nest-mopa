@@ -41,10 +41,13 @@ export interface PagingInputInterface {
 
 export interface PagingProps<T> {
   filter: any;
-  search?: string;
+
   key?: keyof T;
-  KeyType?: any;
+  keyBuilder?: any;
+  keyOrder?: any;
+
   order?: SortOrder;
+  search?: string;
   cursors?: {
     after?: any;
     before?: any;
@@ -55,21 +58,31 @@ export interface PagingProps<T> {
 /* eslint-disable */
 export class Paging<T> {
   static DEFAULT_KEY = '_id';
-  static DEFAULT_TYPE = Types.ObjectId;
+  static DEFAULT_KEY_BUILDER = (id: any) => new Types.ObjectId(id);
+  static DEFAULT_KEY_SORT = 1;
+
   static ASC: SortOrder = 1;
   static DESC: SortOrder = -1;
 
+  /**
+   * filter cuối cùng trả về để try vấn
+   * là dạng sau khi xử lý cursor
+   */
   filter: any;
 
+  /**
+   * filter gốc người dùng truyền vào
+   */
   condition: any; // original filter
 
-  originSort: Sort<T>;
-
+  /**
+   * Điều kiện sắp xếp sau khi xử lý cursor
+   */
   sort: Sort<T> & { _id?: SortOrder; score?: { $meta: 'textScore' } };
 
   key: keyof T;
-  KeyType: any;
-  order: SortOrder;
+  keyBuilder?: any;
+  keyOrder: SortOrder;
 
   reverse = false;
 
@@ -85,22 +98,23 @@ export class Paging<T> {
 
     let {
       key = Paging.DEFAULT_KEY as keyof T,
-      KeyType = Paging.DEFAULT_TYPE,
-      order = Paging.ASC,
+      keyBuilder = Paging.DEFAULT_KEY_BUILDER,
+      keyOrder = Paging.DEFAULT_KEY_SORT,
       cursors,
       filter = {},
       search,
       toEntity,
     } = props;
 
-    this.toEntity = toEntity;
-    this.search = search;
+    this.keyBuilder = keyBuilder;
+    this.keyOrder = keyOrder;
     this.key = key;
-    this.KeyType = KeyType;
-    this.order = order;
+
+    this.search = search;
     this.condition = filter || {};
     this.filter = filter || {};
     this.secret = process.env.NEMOPA_SECRET || 'this-is-default';
+    this.toEntity = toEntity;
 
     /**
      * 1. ĐIỀU KIỆN LẤY MẢNG TIẾP THEO.
@@ -129,9 +143,9 @@ export class Paging<T> {
     this.sort = (
       this.reverse
         ? {
-            [key]: order === Paging.ASC ? Paging.DESC : Paging.ASC,
+            [key]: keyOrder === Paging.ASC ? Paging.DESC : Paging.ASC,
           }
-        : { [key]: order }
+        : { [key]: keyOrder }
     ) as Sort<T>;
 
     this.filter[key] ||= {};
@@ -153,10 +167,10 @@ export class Paging<T> {
    * Trả về điều kiện để đi tiếp từ cursors
    */
   afterOf(cursor: any) {
-    const KeyType = this.KeyType;
-    return this.order === Paging.ASC
-      ? { $gt: KeyType ? new KeyType(cursor) : cursor }
-      : { $lt: KeyType ? new KeyType(cursor) : cursor };
+    const builder = this.keyBuilder;
+    return this.keyOrder === Paging.ASC
+      ? { $gt: builder ? builder(cursor) : cursor }
+      : { $lt: builder ? builder(cursor) : cursor };
   }
 
   /**
@@ -165,11 +179,10 @@ export class Paging<T> {
    * Mảng nghịch thì lấy ngược lại.
    */
   beforeOf(cursor: any) {
-    const KeyType = this.KeyType;
-
-    return this.order === Paging.ASC
-      ? { $lt: KeyType ? new KeyType(cursor) : cursor }
-      : { $gt: KeyType ? new KeyType(cursor) : cursor };
+    const builder = this.keyBuilder;
+    return this.keyOrder === Paging.ASC
+      ? { $lt: builder ? builder(cursor) : cursor }
+      : { $gt: builder ? builder(cursor) : cursor };
   }
 
   decrypt(cursors: { after?: string; before?: string }) {
@@ -209,6 +222,7 @@ export class Paging<T> {
    * cursors để lấy trạng thái tiếp theo
    */
   cursor(many: Array<T & { _id?: any }>) {
+    if (!many?.length) return { data: many };
     /**
      * Chuẩn hoá chiều kết quả
      * cho trường hợp mảng từ bé đến lớn, tại vị trí cursos lấy ngược các phần tử bé hơn.
@@ -244,10 +258,12 @@ export class Paging<T> {
     const countPrevious = (await model.countDocuments(filterPrevious)) || 0;
     const countNext = (await model.countDocuments(filterNext)) || 0;
     const count = await model.countDocuments(this.condition);
+
     const entities =
       typeof this.toEntity == 'function'
         ? data.map((one) => this.toEntity(one))
         : data;
+
     return {
       data: entities,
       paging: {
