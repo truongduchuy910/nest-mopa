@@ -1,5 +1,5 @@
 import { type FilterQuery, type Model, type SortOrder, Types } from 'mongoose';
-import { first, isArray, last, pickBy } from 'lodash';
+import { first, isArray, last, pickBy, get } from 'lodash';
 import { sign, verify } from 'jsonwebtoken';
 
 export interface FindManyProps<T = any> {
@@ -59,7 +59,7 @@ export interface PagingProps<T> {
 export class Paging<T> {
   static DEFAULT_KEY = '_id';
   static DEFAULT_KEY_BUILDER = (id: any) => new Types.ObjectId(id);
-  static DEFAULT_KEY_SORT = 1;
+  static DEFAULT_KEY_SORT: SortOrder = 1;
 
   static ASC: SortOrder = 1;
   static DESC: SortOrder = -1;
@@ -119,6 +119,14 @@ export class Paging<T> {
     /**
      * 1. ĐIỀU KIỆN LẤY MẢNG TIẾP THEO.
      */
+    const actualOrder = this.reverse
+      ? keyOrder === Paging.ASC
+        ? Paging.DESC
+        : Paging.ASC
+      : keyOrder;
+
+    this.sort = { [key]: actualOrder, _id: actualOrder } as Sort<T>;
+
     if (cursors) {
       /**
        * Giải mã cursors, xác định chiều của mảng.
@@ -132,24 +140,20 @@ export class Paging<T> {
        */
 
       if (after && before) {
-        throw new Error('Cannot using both "after" and "before"');
+        throw new Error('Cannot use both "after" and "before" cursors.');
       }
 
-      this.filter[key] = after
-        ? this.afterOf(after.cursor)
-        : this.beforeOf(before.cursor);
+      this.filter = after
+        ? { ...this.filter, ...this.afterCursorCondition(after.value, after._id) }
+        : { ...this.filter, ...this.beforeCursorCondition(before.value, before._id) };
+
+    } else {
+      this.filter[key] ||= {};
+      this.filter[key].$exists = true;
+
+      this.filter[Paging.DEFAULT_KEY] ||= {};
+      this.filter[Paging.DEFAULT_KEY].$exists = true;
     }
-
-    this.sort = (
-      this.reverse
-        ? {
-            [key]: keyOrder === Paging.ASC ? Paging.DESC : Paging.ASC,
-          }
-        : { [key]: keyOrder }
-    ) as Sort<T>;
-
-    this.filter[key] ||= {};
-    this.filter[key].$exists = true;
 
     if (this.search) {
       this.filter.$text = { $search: this.search };
@@ -166,11 +170,9 @@ export class Paging<T> {
   /**
    * Trả về điều kiện để đi tiếp từ cursors
    */
-  afterOf(cursor: any) {
-    const builder = this.keyBuilder;
-    return this.keyOrder === Paging.ASC
-      ? { $gt: builder ? builder(cursor) : cursor }
-      : { $lt: builder ? builder(cursor) : cursor };
+  private afterOf(key: any, value: any, builder?: any) {
+    const operator = this.keyOrder === Paging.ASC ? '$gt' : '$lt';
+    return { [key]: { [operator]: builder ? builder(value) : value, $exists: true } };
   }
 
   /**
@@ -178,14 +180,44 @@ export class Paging<T> {
    * Mảng thuận từ bé đến lớn thì lấy đằng trước, những cái có giá trị nhỏ hơn.
    * Mảng nghịch thì lấy ngược lại.
    */
-  beforeOf(cursor: any) {
-    const builder = this.keyBuilder;
-    return this.keyOrder === Paging.ASC
-      ? { $lt: builder ? builder(cursor) : cursor }
-      : { $gt: builder ? builder(cursor) : cursor };
+  private beforeOf(key: any, value: any, builder?: any) {
+    const operator = this.keyOrder === Paging.ASC ? '$lt' : '$gt';
+    return { [key]: { [operator]: builder ? builder(value) : value, $exists: true } };
   }
 
-  decrypt(cursors: { after?: string; before?: string }) {
+  private afterCursorCondition(lastCursorValue: any, lastCursorId: any) {
+    if (this.key === Paging.DEFAULT_KEY) {
+      return this.afterOf(Paging.DEFAULT_KEY, lastCursorId, Paging.DEFAULT_KEY_BUILDER);
+    }
+
+    return {
+      $or: [
+        {
+          [this.key]: { $eq: this.keyBuilder ? this.keyBuilder(lastCursorValue) : lastCursorValue, $exists: true },
+          ...this.afterOf(Paging.DEFAULT_KEY, lastCursorId, Paging.DEFAULT_KEY_BUILDER)
+        },
+        this.afterOf(this.key, lastCursorValue, this.keyBuilder)
+      ]
+    };
+  }
+
+  private beforeCursorCondition(firstCursorValue: any, firstCursorId: any) {
+    if (this.key === Paging.DEFAULT_KEY) {
+      return this.beforeOf(Paging.DEFAULT_KEY, firstCursorId, Paging.DEFAULT_KEY_BUILDER);
+    }
+
+    return {
+      $or: [
+        {
+          [this.key]: { $eq: this.keyBuilder ? this.keyBuilder(firstCursorValue) : firstCursorValue, $exists: true },
+          ...this.beforeOf(Paging.DEFAULT_KEY, firstCursorId, Paging.DEFAULT_KEY_BUILDER)
+        },
+        this.beforeOf(this.key, firstCursorValue, this.keyBuilder)
+      ]
+    };
+  }
+
+  private decrypt(cursors: { after?: string; before?: string }) {
     return {
       after: cursors?.after && this.parse(cursors.after),
       before: cursors?.before && this.parse(cursors.before),
@@ -196,7 +228,7 @@ export class Paging<T> {
    * DECODE
    * decode, encrypt, parse... from string
    */
-  parse(cursor: string) {
+  private parse(cursor: string) {
     try {
       if (this.secret) {
         return verify(cursor, this.secret);
@@ -204,17 +236,17 @@ export class Paging<T> {
         return JSON.parse(cursor);
       }
     } catch (e) {
-      throw new Error(`Pagination error.`);
+      throw new Error('Pagination error.');
     }
   }
 
-  stringify(cursor: any) {
-    const value = { cursor };
-    if (this.secret) {
-      return sign(value, this.secret);
-    } else {
-      return JSON.stringify(value);
-    }
+  private stringify(key: any, value: any, _id: string) {
+    const cursor = { 
+      key, 
+      value, 
+      _id 
+    };
+    return this.secret ? sign(cursor, this.secret) : JSON.stringify(cursor);
   }
 
   /**
@@ -230,34 +262,38 @@ export class Paging<T> {
     const data = this.reverse ? many.reverse() : many;
 
     /* vị trí chốt */
-    const lastCursor = last(data)?.[this.key];
-    /* gộp điều kiện hiện tại */
-    let filterNext = Object.assign({}, this.filter);
+    const lastCursor = this.createCursor(last(data));
     /* điều kiện kết quả tiếp theo */
-    filterNext[this.key] = this.afterOf(lastCursor);
+    const filterNext = { ...this.filter, ...this.afterCursorCondition(lastCursor.value, lastCursor._id) };
 
     /* vị trí chốt */
-    const firstCursor = first(data)?.[this.key];
-    /* gộp điều kiện hiện tại */
-    let filterPrevious = Object.assign({}, this.filter);
+    const firstCursor = this.createCursor(first(data));
     /* điều kiện kết quả trước */
-    filterPrevious[this.key] = this.beforeOf(firstCursor);
+    const filterPrevious = { ...this.filter, ...this.beforeCursorCondition(firstCursor.value, firstCursor._id) };
 
     return {
-      afterCursor: this.stringify(lastCursor),
-      beforeCursor: this.stringify(firstCursor),
+      afterCursor: this.stringify(this.key, lastCursor.value, lastCursor._id),
+      beforeCursor: this.stringify(this.key, firstCursor.value, firstCursor._id),
       filterNext,
       filterPrevious,
       data,
     };
   }
 
+  private createCursor(cursorItem: T & { _id?: any }) {
+    return {
+      value: get(cursorItem, this.key, null),
+      _id: cursorItem?._id,
+    };
+  }
+
   async build(many: Array<T>, model: Model<T>) {
-    const { afterCursor, beforeCursor, filterNext, filterPrevious, data } =
-      this.cursor(many);
-    const countPrevious = (await model.countDocuments(filterPrevious)) || 0;
-    const countNext = (await model.countDocuments(filterNext)) || 0;
-    const count = await model.countDocuments(this.condition);
+    const { afterCursor, beforeCursor, filterNext, filterPrevious, data } = this.cursor(many);
+    const [countPrevious, countNext, count] = await Promise.all([
+      model.countDocuments(filterPrevious) || 0,
+      model.countDocuments(filterNext) || 0,
+      model.countDocuments(this.condition),
+    ]);
 
     const entities =
       typeof this.toEntity == 'function'
