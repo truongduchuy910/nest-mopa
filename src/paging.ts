@@ -1,59 +1,7 @@
-import { type FilterQuery, type Model, type SortOrder, Types } from 'mongoose';
+import { type Model, type SortOrder, Types } from 'mongoose';
 import { first, isArray, last, pickBy, get } from 'lodash';
 import { sign, verify } from 'jsonwebtoken';
-
-export interface FindManyProps<T = any> {
-  filter: FilterQuery<T>;
-  paging: PagingInputInterface;
-  sort?: {
-    key: keyof T;
-    KeyType: any;
-    order: SortOrder;
-  };
-  search?: string;
-}
-
-type Sort<T> = { [K in keyof T]: SortOrder };
-
-export class CursorInputInterface {
-  after?: string;
-
-  before?: string;
-}
-
-export interface PagingInputInterface {
-  until?: Date;
-
-  since?: Date;
-
-  limit?: number;
-
-  offset?: number;
-
-  cursors?: CursorInputInterface;
-
-  size?: number;
-
-  search?: string;
-
-  sortBy?: string;
-}
-
-export interface PagingProps<T> {
-  filter: any;
-
-  key?: keyof T;
-  keyBuilder?: any;
-  keyOrder?: any;
-
-  order?: SortOrder;
-  search?: string;
-  cursors?: {
-    after?: any;
-    before?: any;
-  };
-  toEntity?: any;
-}
+import type { PagingInputInterface, PagingProps, Sort } from 'nest-gfc';
 
 /* eslint-disable */
 export class Paging<T> {
@@ -144,9 +92,14 @@ export class Paging<T> {
       }
 
       this.filter = after
-        ? { ...this.filter, ...this.afterCursorCondition(after.value, after._id) }
-        : { ...this.filter, ...this.beforeCursorCondition(before.value, before._id) };
-
+        ? {
+            ...this.filter,
+            ...this.afterCursorCondition(after.value, after._id),
+          }
+        : {
+            ...this.filter,
+            ...this.beforeCursorCondition(before.value, before._id),
+          };
     } else {
       this.filter[key] ||= {};
       this.filter[key].$exists = true;
@@ -172,7 +125,9 @@ export class Paging<T> {
    */
   private afterOf(key: any, value: any, builder?: any) {
     const operator = this.keyOrder === Paging.ASC ? '$gt' : '$lt';
-    return { [key]: { [operator]: builder ? builder(value) : value, $exists: true } };
+    return {
+      [key]: { [operator]: builder ? builder(value) : value, $exists: true },
+    };
   }
 
   /**
@@ -182,38 +137,66 @@ export class Paging<T> {
    */
   private beforeOf(key: any, value: any, builder?: any) {
     const operator = this.keyOrder === Paging.ASC ? '$lt' : '$gt';
-    return { [key]: { [operator]: builder ? builder(value) : value, $exists: true } };
+    return {
+      [key]: { [operator]: builder ? builder(value) : value, $exists: true },
+    };
   }
 
   private afterCursorCondition(lastCursorValue: any, lastCursorId: any) {
     if (this.key === Paging.DEFAULT_KEY) {
-      return this.afterOf(Paging.DEFAULT_KEY, lastCursorId, Paging.DEFAULT_KEY_BUILDER);
+      return this.afterOf(
+        Paging.DEFAULT_KEY,
+        lastCursorId,
+        Paging.DEFAULT_KEY_BUILDER,
+      );
     }
 
     return {
       $or: [
         {
-          [this.key]: { $eq: this.keyBuilder ? this.keyBuilder(lastCursorValue) : lastCursorValue, $exists: true },
-          ...this.afterOf(Paging.DEFAULT_KEY, lastCursorId, Paging.DEFAULT_KEY_BUILDER)
+          [this.key]: {
+            $eq: this.keyBuilder
+              ? this.keyBuilder(lastCursorValue)
+              : lastCursorValue,
+            $exists: true,
+          },
+          ...this.afterOf(
+            Paging.DEFAULT_KEY,
+            lastCursorId,
+            Paging.DEFAULT_KEY_BUILDER,
+          ),
         },
-        this.afterOf(this.key, lastCursorValue, this.keyBuilder)
-      ]
+        this.afterOf(this.key, lastCursorValue, this.keyBuilder),
+      ],
     };
   }
 
   private beforeCursorCondition(firstCursorValue: any, firstCursorId: any) {
     if (this.key === Paging.DEFAULT_KEY) {
-      return this.beforeOf(Paging.DEFAULT_KEY, firstCursorId, Paging.DEFAULT_KEY_BUILDER);
+      return this.beforeOf(
+        Paging.DEFAULT_KEY,
+        firstCursorId,
+        Paging.DEFAULT_KEY_BUILDER,
+      );
     }
 
     return {
       $or: [
         {
-          [this.key]: { $eq: this.keyBuilder ? this.keyBuilder(firstCursorValue) : firstCursorValue, $exists: true },
-          ...this.beforeOf(Paging.DEFAULT_KEY, firstCursorId, Paging.DEFAULT_KEY_BUILDER)
+          [this.key]: {
+            $eq: this.keyBuilder
+              ? this.keyBuilder(firstCursorValue)
+              : firstCursorValue,
+            $exists: true,
+          },
+          ...this.beforeOf(
+            Paging.DEFAULT_KEY,
+            firstCursorId,
+            Paging.DEFAULT_KEY_BUILDER,
+          ),
         },
-        this.beforeOf(this.key, firstCursorValue, this.keyBuilder)
-      ]
+        this.beforeOf(this.key, firstCursorValue, this.keyBuilder),
+      ],
     };
   }
 
@@ -241,10 +224,10 @@ export class Paging<T> {
   }
 
   private stringify(key: any, value: any, _id: string) {
-    const cursor = { 
-      key, 
-      value, 
-      _id 
+    const cursor = {
+      key,
+      value,
+      _id,
     };
     return this.secret ? sign(cursor, this.secret) : JSON.stringify(cursor);
   }
@@ -264,16 +247,26 @@ export class Paging<T> {
     /* vị trí chốt */
     const lastCursor = this.createCursor(last(data));
     /* điều kiện kết quả tiếp theo */
-    const filterNext = { ...this.filter, ...this.afterCursorCondition(lastCursor.value, lastCursor._id) };
+    const filterNext = {
+      ...this.filter,
+      ...this.afterCursorCondition(lastCursor.value, lastCursor._id),
+    };
 
     /* vị trí chốt */
     const firstCursor = this.createCursor(first(data));
     /* điều kiện kết quả trước */
-    const filterPrevious = { ...this.filter, ...this.beforeCursorCondition(firstCursor.value, firstCursor._id) };
+    const filterPrevious = {
+      ...this.filter,
+      ...this.beforeCursorCondition(firstCursor.value, firstCursor._id),
+    };
 
     return {
       afterCursor: this.stringify(this.key, lastCursor.value, lastCursor._id),
-      beforeCursor: this.stringify(this.key, firstCursor.value, firstCursor._id),
+      beforeCursor: this.stringify(
+        this.key,
+        firstCursor.value,
+        firstCursor._id,
+      ),
       filterNext,
       filterPrevious,
       data,
@@ -288,7 +281,8 @@ export class Paging<T> {
   }
 
   async build(many: Array<T>, model: Model<T>) {
-    const { afterCursor, beforeCursor, filterNext, filterPrevious, data } = this.cursor(many);
+    const { afterCursor, beforeCursor, filterNext, filterPrevious, data } =
+      this.cursor(many);
     const [countPrevious, countNext, count] = await Promise.all([
       model.countDocuments(filterPrevious) || 0,
       model.countDocuments(filterNext) || 0,
