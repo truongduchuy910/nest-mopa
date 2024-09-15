@@ -18,11 +18,7 @@
     "noImplicitAny": true,
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false,
-    "paths": {
-      "nest-gfc": ["../nest-gfc/src"],
-      "nest-gfc/*": ["../nest-gfc/src/*"]
-    }
+    "noFallthroughCasesInSwitch": false
   },
   "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "scripts"]
 }

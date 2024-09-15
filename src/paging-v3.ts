@@ -160,7 +160,7 @@ class CursorBuilder<T> {
     const secondary = this?.secondary?.key;
     const value =
       node?.[primary] instanceof Date
-        ? node?.[primary].toISOString()
+        ? (node[primary] as any).toISOString()
         : `${node?.[primary]}`;
     if (secondary)
       return {
@@ -279,7 +279,7 @@ export class PagingV3<T> {
   decrypt(cursor: string): Partial<T> | null {
     try {
       if (this.secret) {
-        return verify(cursor, this.secret);
+        return verify(cursor, this.secret) as any;
       } else {
         return JSON.parse(cursor);
       }
