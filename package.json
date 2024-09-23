@@ -30,7 +30,7 @@
     "nest-gfc": "^1.0.2"
   },
   "name": "nest-mopa",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Nest Library - Mongoose Pagination.",
   "repository": {
     "type": "git",
