@@ -1,5 +1,14 @@
 import { type Model, type SortOrder, Types } from 'mongoose';
-import { clone, first, isArray, isEmpty, last, pick, pickBy } from 'lodash';
+import {
+  clone,
+  first,
+  isArray,
+  isEmpty,
+  last,
+  merge,
+  pick,
+  pickBy,
+} from 'lodash';
 import { sign, verify } from 'jsonwebtoken';
 import type { Key, PagingPropsV3, Sort } from 'nest-gfc';
 
@@ -237,9 +246,10 @@ export class PagingV3<T> {
 
       this.reverse = Boolean(before);
       const node = this.builder.node(before || after) as T;
-      this.filter = this.reverse
+      const cursor = this.reverse
         ? this.builder.beforeOf(node)
         : this.builder.afterOf(node);
+      this.filter = merge(this.filter, cursor);
     }
 
     this.sort = this.builder.sort(this.reverse);
@@ -249,11 +259,7 @@ export class PagingV3<T> {
       this.sort.score = { $meta: 'textScore' };
     }
 
-    this.filter = pickBy(this.filter, (value) =>
-      isArray(value)
-        ? value.length > 0
-        : value !== undefined && value !== null && value !== '',
-    ) as { [P in keyof T]?: any };
+    this.filter = pickBy(this.filter) as { [P in keyof T]?: any };
   }
 
   decryptAll(cursors: { after?: string; before?: string }) {
