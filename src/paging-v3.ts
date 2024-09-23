@@ -1,14 +1,5 @@
 import { type Model, type SortOrder, Types } from 'mongoose';
-import {
-  clone,
-  first,
-  isArray,
-  isEmpty,
-  last,
-  merge,
-  pick,
-  pickBy,
-} from 'lodash';
+import { clone, first, isArray, isEmpty, last, pick, pickBy } from 'lodash';
 import { sign, verify } from 'jsonwebtoken';
 import type { Key, PagingPropsV3, Sort } from 'nest-gfc';
 
